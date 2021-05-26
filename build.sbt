@@ -36,6 +36,21 @@ lazy val commonSettings = Seq(
   ThisBuild / evictionErrorLevel := Level.Warn
 )
 
+lazy val documentationSettings = Seq(
+  autoAPIMappings := true,
+  apiMappings ++= {
+    // Lookup the path to jar from the classpath
+    val classpath = (Compile / fullClasspath).value
+    def findJar(nameBeginsWith: String): File =
+      classpath
+        .find { attributed: Attributed[java.io.File] => (attributed.data ** s"$nameBeginsWith*.jar").get.nonEmpty }
+        .get
+        .data // fail hard if not found
+    // Define external documentation paths
+    Map(findJar("cats-effect") -> url("https://typelevel.org/cats-effect/api/3.x/cats/index.html"))
+  }
+)
+
 lazy val noPublishSettings = commonSettings ++ Seq(publish := {}, publishArtifact := false, publishTo := None)
 
 lazy val publishSettings = commonSettings ++ Seq(
@@ -54,6 +69,7 @@ lazy val root = (project in file("."))
 lazy val core =
   (project in file("modules/core"))
     .settings(publishSettings)
+    .settings(documentationSettings)
     .settings(
       name := "hotswap-ref",
       libraryDependencies ++= Seq(Dependencies.cats, Dependencies.catsEffectStd),

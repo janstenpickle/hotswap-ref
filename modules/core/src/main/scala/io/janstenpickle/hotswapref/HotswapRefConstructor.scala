@@ -30,7 +30,7 @@ object HotswapRefConstructor {
     *
     * @param initial the initial value of input `I` to be used to construct `R`
     * @param make used to construct a [[cats.effect.kernel.Resource]] of `R` from `I`, called on construction and when
-    *             [[swapWith]] is used.
+    *             `swapWith` is used.
     */
   def apply[F[_]: Temporal, I, R](
     initial: I

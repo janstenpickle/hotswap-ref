@@ -23,7 +23,7 @@ trait HotswapRef[F[_], R] {
 
   /** Swap the current resource with a new version
     *
-    * This makes use of [[evalTap]] on the provided [[cats.effect.kernel.Resource]] to ensure the
+    * This makes use of `evalTap` on the provided [[cats.effect.kernel.Resource]] to ensure the
     * [[cats.effect.kernel.Ref]] with `R` is updated immediately on allocation and may be used by [[access]] calls while
     * [[swap]] blocks, waiting for the previous [[cats.effect.kernel.Resource]] to finalize.
     *
@@ -50,10 +50,10 @@ object HotswapRef {
     */
   def apply[F[_]: Temporal, R](initial: Resource[F, R]): Resource[F, HotswapRef[F, R]] = {
 
-    /** Provision a [[cats.effect.kernel.Ref]] to count the number of active requests for `R`, and do not release
-      * the resource until the number of open requests reaches 0. This effectively blocks the
-      * `swap` method until the previous resource is no longer in use anywhere.
-      */
+    /* Provision a [[cats.effect.kernel.Ref]] to count the number of active requests for `R`, and do not release
+     * the resource until the number of open requests reaches 0. This effectively blocks the
+     * `swap` method until the previous resource is no longer in use anywhere.
+     */
     def makeResource(r: Resource[F, R]): Resource[F, (Ref[F, Long], R)] =
       for {
         r0 <- r

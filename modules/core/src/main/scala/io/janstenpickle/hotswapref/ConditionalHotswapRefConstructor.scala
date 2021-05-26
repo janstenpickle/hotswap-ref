@@ -31,12 +31,12 @@ object ConditionalHotswapRefConstructor {
   /** Creates a new [[ConditionalHotswapRefConstructor]] initialized using `initial` and `make`. The
     * [[ConditionalHotswapRefConstructor]] instance is returned within a [[cats.effect.kernel.Resource]].
     *
-    * A [[cats.kernel.Eq]] instance for `I` is required for [[maybeSwapWith]] to compare the current and next values
+    * A [[cats.kernel.Eq]] instance for `I` is required for `maybeSwapWith` to compare the current and next values
     * of `I`.
     *
     * @param initial the initial value of input `I` to be used to construct `R`
     * @param make used to construct a [[cats.effect.kernel.Resource]] of `R` from `I`, called on construction and when
-    *             [[swapWith]] or [[maybeSwapWith]] is used.
+    *             `swapWith` or `maybeSwapWith` is used.
     */
   def apply[F[_]: Temporal, I: Eq, R](
     initial: I

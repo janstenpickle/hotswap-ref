@@ -26,9 +26,6 @@ jobs:
           distribution: 'adopt'
           java-version: '11'
 
-      - name: docker containers
-        run: docker-compose up -d
-
       - name: Cache ivy2
         uses: actions/cache@v2.1.5
         with:

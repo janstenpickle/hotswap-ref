@@ -13,7 +13,7 @@ lazy val commonSettings = Seq(
   licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
   homepage := Some(url("https://github.com/janstenpickle/hotswap-ref")),
   scmInfo := Some(
-    ScmInfo(url("https://github.com/janstenpickle/trace4cats"), "scm:git:git@github.com:janstenpickle/trace4cats.git")
+    ScmInfo(url("https://github.com/janstenpickle/hotswap-ref"), "scm:git:git@github.com:janstenpickle/hotswap-ref.git")
   ),
   Compile / compile / javacOptions ++= Seq("-source", "1.8", "-target", "1.8"),
   addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),

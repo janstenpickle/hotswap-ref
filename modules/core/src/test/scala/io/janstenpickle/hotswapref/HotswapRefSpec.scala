@@ -48,6 +48,7 @@ class HotswapRefSpec extends AnyFlatSpec with Matchers with TestInstances {
       )
       _ <- Resource.eval(IO.sleep(1.second)) // give it a chance to update
       _ <- Resource.eval(hotswap.swap(Resource.pure(ref1)).start)
+      _ <- Resource.eval(IO.sleep(1.second)) // give it a chance to update
       _ <- Resource.eval(hotswap.access.use(_.update("test1" :: _)))
     } yield (ref0.get, ref1.get, releaseSignal.get)).use(_.tupled)
 

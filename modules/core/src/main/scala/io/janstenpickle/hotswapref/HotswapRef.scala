@@ -4,6 +4,7 @@ import cats.effect.kernel.{Clock, Ref, Resource, Temporal}
 import cats.effect.std.{Hotswap, Semaphore}
 import cats.syntax.functor._
 import cats.syntax.monad._
+import cats.syntax.flatMap._
 
 import scala.concurrent.duration._
 
@@ -62,17 +63,23 @@ object HotswapRef {
 
     for {
       (hotswap, r) <- Hotswap(makeResource(initial))
-      sem <- Resource.eval(Semaphore(1))
+      swapSem <- Resource.eval(Semaphore(1))
+      accessSem <- Resource.eval(Semaphore(1))
       ref <- Resource.eval(Ref.of(r))
     } yield new HotswapRef[F, R] {
       override def swap(next: Resource[F, R]): F[Unit] =
-        sem.permit.use(_ => hotswap.swap(makeResource(next).evalTap(ref.set))).void
+        swapSem.permit
+          .use(_ => hotswap.swap(makeResource(next).evalTap(r => accessSem.permit.use(_ => ref.set(r)))))
+          .void
 
       override val access: Resource[F, R] =
-        for {
-          (references, r) <- Resource.eval(ref.get)
-          _ <- Resource.make(references.update(_ + 1))(_ => references.update(_ - 1))
-        } yield r
+        Resource
+          .make(
+            accessSem.permit.use(_ =>
+              ref.get.flatMap { case (references, r) => references.update(_ + 1).as(references -> r) }
+            )
+          )(_._1.update(_ - 1))
+          .map(_._2)
     }
   }
 }

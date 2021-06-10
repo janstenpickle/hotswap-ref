@@ -2,8 +2,8 @@ package io.janstenpickle.hotswapref
 
 import cats.effect.kernel._
 import cats.effect.std.{Hotswap, Semaphore}
+import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.monad._
 
 /** A concurrent data structure that wraps a [[cats.effect.std.Hotswap]] providing access to `R` using a
   * [[cats.effect.kernel.Ref]], that is set on resource acquisition, while providing asynchronous hotswap functionality
@@ -25,7 +25,7 @@ trait HotswapRef[F[_], R] {
     * [[cats.effect.kernel.Ref]] with `R` is updated immediately on allocation and may be used by [[access]] calls while
     * [[swap]] blocks, waiting for the previous [[cats.effect.kernel.Resource]] to finalize.
     *
-    * This means that while there is previous no finalization process in progress when this is called, `R` may be
+    * This means that while there is no previous finalization process in progress when this is called, `R` may be
     * swapped in the ref, but will block until all references to `R` are removed and `R` is torn down.
     *
     * A semaphore guarantees that concurrent access to [[swap]] will wait while previous resources are finalized.
@@ -48,6 +48,15 @@ object HotswapRef {
     */
   def apply[F[_]: Temporal, R](initial: Resource[F, R]): Resource[F, HotswapRef[F, R]] = {
 
+    /** Secure a resource by enriching it with a semaphore and a unique token and by modifying its `release` action.
+      *
+      * The semaphore is used as a share lock during `access` to the resource (permits concurrent access but prohibits
+      * release) and as an exclusive lock during `release` of the resource (prohibits access).
+      *
+      * The token is used during `access` for consistent read of the holder reference.
+      *
+      * The `release` action of the resource is protected by an exclusive lock on the semaphore.
+      */
     def secure(res: Resource[F, R]): Resource[F, (R, Semaphore[F], Unique.Token)] = for {
       sem <- Resource.eval(Semaphore(Long.MaxValue))
       r <- Resource
@@ -69,13 +78,24 @@ object HotswapRef {
         swapSem.permit.surround(hotswap.swap(secure(next).evalTap(holder.set))).void
 
       override val access: Resource[F, R] = {
-        val doubleCheck = for {
-          (_, accessSem, token1) <- Resource.eval(holder.get)
-          _ <- accessSem.permit
-          (r, _, token2) <- Resource.eval(holder.get)
-        } yield (token1 == token2, r)
 
-        doubleCheck.iterateUntil(_._1).map(_._2)
+        /** Access to the resource is protected by a share lock on the semaphore.
+          * The holder reference is read at least twice: first, to retrieve its content,
+          * and then, after capturing the lock, to check if the content hasn't change
+          * since the first read. If the holder has been swapped, the new content is passed
+          * to the next step of the loop. Otherwise, it's used to build the resulting `Resource`.
+          */
+        val step: (R, Semaphore[F], Unique.Token) => F[Either[(R, Semaphore[F], Unique.Token), (R, F[Unit])]] =
+          (r, sem, token) =>
+            sem.permit.allocated.flatMap { case (_, semRelease) =>
+              holder.get.map { case (r1, sem1, token1) =>
+                Either.cond(token == token1, (r, semRelease), (r1, sem1, token1))
+              }
+            }
+
+        val allocated = holder.get.flatMap(_.tailRecM(step.tupled))
+
+        Resource.makeFull((poll: Poll[F]) => poll(allocated))(_._2).map(_._1)
       }
     }
   }

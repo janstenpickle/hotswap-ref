@@ -2,6 +2,7 @@ package io.janstenpickle.hotswapref
 
 import cats.effect.IO
 import cats.effect.kernel.{Ref, Resource}
+import cats.effect.std.Console
 import cats.effect.testkit.TestInstances
 import cats.effect.unsafe.IORuntime
 import cats.syntax.all._
@@ -38,20 +39,36 @@ class HotswapRefSpec extends AnyFlatSpec with Matchers with TestInstances {
   }
 
   it should "block on swap while handles to previous resource are held" in {
+    def putstrln(s: String) = IO.realTimeInstant >>= (t => Console[IO].println(s"[$t] $s"))
+    def putstrlnR(s: String) = Resource.eval(putstrln(s))
+
     val test = (for {
       ref0 <- ref
       ref1 <- ref
+      res0 = Resource.make(putstrln("acquire res0").as(ref0))(_ => putstrln("release res0"))
+      res1 = Resource.make(putstrln("acquire res1").as(ref1))(_ => putstrln("release res1"))
       releaseSignal <- Resource.eval(Ref.of[IO, Boolean](false))
-      hotswap <- HotswapRef[IO, Ref[IO, List[String]]](Resource.pure(ref0))
+      hotswap <- HotswapRef[IO, Ref[IO, List[String]]](res0)
       _ <- Resource.eval(
-        hotswap.access.use(_.update("test0" :: _) >> IO.sleep(10.seconds) >> releaseSignal.set(true)).start
+        hotswap.access
+          .use(r =>
+            putstrln("start access to res0") >> r.update("test0" :: _) >> IO.sleep(10.seconds) >> releaseSignal
+              .set(true) >> putstrln("finish access to res0")
+          )
+          .start
       )
       _ <- Resource.eval(IO.sleep(1.second)) // give it a chance to update
-      _ <- Resource.eval(hotswap.swap(Resource.pure(ref1)).start)
-      _ <- Resource.eval(hotswap.access.use(_.update("test1" :: _)))
+      _ <- putstrlnR("hotswap res0 and res1")
+      _ <- Resource.eval(hotswap.swap(res1).start)
+      _ <- Resource.eval(IO.sleep(1.second)) // give it a chance to allocate a new resource and refresh the holder ref
+      _ <- Resource.eval(
+        hotswap.access.use(r =>
+          putstrln("start access to res1") >> r.update("test1" :: _) >> putstrln("finish access to res1")
+        )
+      )
     } yield (ref0.get, ref1.get, releaseSignal.get)).use(_.tupled)
 
-    val res = test.unsafeRunSync()
+    val res = (test <* IO.sleep(10.seconds)).unsafeRunSync()
 
     // each ref has been used
     res._1.size should be(1)

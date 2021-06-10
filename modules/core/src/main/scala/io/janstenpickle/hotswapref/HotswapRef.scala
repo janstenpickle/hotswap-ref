@@ -1,12 +1,9 @@
 package io.janstenpickle.hotswapref
 
-import cats.effect.kernel.{Clock, Ref, Resource, Temporal}
+import cats.effect.kernel._
 import cats.effect.std.{Hotswap, Semaphore}
 import cats.syntax.functor._
 import cats.syntax.monad._
-import cats.syntax.flatMap._
-
-import scala.concurrent.duration._
 
 /** A concurrent data structure that wraps a [[cats.effect.std.Hotswap]] providing access to `R` using a
   * [[cats.effect.kernel.Ref]], that is set on resource acquisition, while providing asynchronous hotswap functionality
@@ -51,35 +48,37 @@ object HotswapRef {
     */
   def apply[F[_]: Temporal, R](initial: Resource[F, R]): Resource[F, HotswapRef[F, R]] = {
 
-    /* Provision a [[cats.effect.kernel.Ref]] to count the number of active requests for `R`, and do not release
-     * the resource until the number of open requests reaches 0. This effectively blocks the
-     * `swap` method until the previous resource is no longer in use anywhere.
-     */
-    def makeResource(r: Resource[F, R]): Resource[F, (Ref[F, Long], R)] =
-      for {
-        r0 <- r
-        ref <- Resource.make(Ref.of(0L))(references => Clock[F].sleep(100.millis).whileM_(references.get.map(_ != 0)))
-      } yield ref -> r0
+    def secure(res: Resource[F, R]): Resource[F, (R, Semaphore[F], Unique.Token)] = for {
+      sem <- Resource.eval(Semaphore(Long.MaxValue))
+      r <- Resource
+        .makeFull((poll: Poll[F]) => poll(res.allocated)) { case (_, release) =>
+          MonadCancelThrow[F].bracketFull((poll: Poll[F]) => poll(sem.acquireN(Long.MaxValue)))(_ => release)((_, _) =>
+            sem.releaseN(Long.MaxValue)
+          )
+        }
+        .map(_._1)
+      token <- Resource.eval(Unique[F].unique)
+    } yield (r, sem, token)
 
     for {
-      (hotswap, r) <- Hotswap(makeResource(initial))
-      swapSem <- Resource.eval(Semaphore(1))
-      accessSem <- Resource.eval(Semaphore(1))
-      ref <- Resource.eval(Ref.of(r))
+      (hotswap, securedR) <- Hotswap(secure(initial))
+      holder <- Resource.eval(Ref.of(securedR))
+      swapSem <- Resource.eval(Semaphore(1L))
     } yield new HotswapRef[F, R] {
       override def swap(next: Resource[F, R]): F[Unit] =
         swapSem.permit
-          .use(_ => hotswap.swap(makeResource(next).evalTap(r => accessSem.permit.use(_ => ref.set(r)))))
+          .use(_ => hotswap.swap(secure(next).evalTap(holder.set)))
           .void
 
-      override val access: Resource[F, R] =
-        Resource
-          .make(
-            accessSem.permit.use(_ =>
-              ref.get.flatMap { case (references, r) => references.update(_ + 1).as(references -> r) }
-            )
-          )(_._1.update(_ - 1))
-          .map(_._2)
+      override val access: Resource[F, R] = {
+        val doubleCheck = for {
+          (_, accessSem, token1) <- Resource.eval(holder.get)
+          _ <- accessSem.permit
+          (r, _, token2) <- Resource.eval(holder.get)
+        } yield (token1 == token2, r)
+
+        doubleCheck.iterateUntil(_._1).map(_._2)
+      }
     }
   }
 }

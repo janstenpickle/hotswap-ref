@@ -4,10 +4,10 @@ object Dependencies {
   object Versions {
     val cats = "2.6.1"
     val catsEffect = "3.1.1"
-    val scala212 = "2.12.13"
+    val scala212 = "2.12.14"
     val scala213 = "2.13.6"
 
-    val catsTestkitScalatest = "2.1.4"
+    val catsTestkitScalatest = "2.1.5"
     val disciplineScalatest = "2.1.5"
     val discipline = "1.1.5"
     val scalaCheck = "1.15.4"

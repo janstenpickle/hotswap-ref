@@ -81,7 +81,7 @@ object HotswapRef {
 
         /** Access to the resource is protected by a share lock on the semaphore.
           * The holder reference is read at least twice: first, to retrieve its content,
-          * and then, after capturing the lock, to check if the content hasn't change
+          * and then, after capturing the lock, to check if the content hasn't changed
           * since the first read. If the holder has been swapped, the new content is passed
           * to the next step of the loop. Otherwise, it's used to build the resulting `Resource`.
           */

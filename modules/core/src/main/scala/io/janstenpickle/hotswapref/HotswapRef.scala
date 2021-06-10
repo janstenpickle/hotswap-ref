@@ -52,9 +52,9 @@ object HotswapRef {
       sem <- Resource.eval(Semaphore(Long.MaxValue))
       r <- Resource
         .makeFull((poll: Poll[F]) => poll(res.allocated)) { case (_, release) =>
-          MonadCancelThrow[F].bracketFull((poll: Poll[F]) => poll(sem.acquireN(Long.MaxValue)))(_ => release)((_, _) =>
-            sem.releaseN(Long.MaxValue)
-          )
+          Resource
+            .makeFull((poll: Poll[F]) => poll(sem.acquireN(Long.MaxValue)))(_ => sem.releaseN(Long.MaxValue))
+            .surround(release)
         }
         .map(_._1)
       token <- Resource.eval(Unique[F].unique)
@@ -66,9 +66,7 @@ object HotswapRef {
       swapSem <- Resource.eval(Semaphore(1L))
     } yield new HotswapRef[F, R] {
       override def swap(next: Resource[F, R]): F[Unit] =
-        swapSem.permit
-          .use(_ => hotswap.swap(secure(next).evalTap(holder.set)))
-          .void
+        swapSem.permit.surround(hotswap.swap(secure(next).evalTap(holder.set))).void
 
       override val access: Resource[F, R] = {
         val doubleCheck = for {

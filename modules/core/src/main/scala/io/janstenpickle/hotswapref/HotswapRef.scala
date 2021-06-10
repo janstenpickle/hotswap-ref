@@ -1,6 +1,6 @@
 package io.janstenpickle.hotswapref
 
-import cats.effect.kernel._
+import cats.effect.kernel.{Concurrent, Poll, Ref, Resource, Unique}
 import cats.effect.std.{Hotswap, Semaphore}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -46,7 +46,7 @@ object HotswapRef {
   /** Creates a new [[HotswapRef]] initialized with the specified resource. The [[HotswapRef]] instance is returned
     * within a [[cats.effect.kernel.Resource]]
     */
-  def apply[F[_]: Temporal, R](initial: Resource[F, R]): Resource[F, HotswapRef[F, R]] = {
+  def apply[F[_]: Concurrent, R](initial: Resource[F, R]): Resource[F, HotswapRef[F, R]] = {
 
     /** Secure a resource by enriching it with a semaphore and a unique token and by modifying its `release` action.
       *

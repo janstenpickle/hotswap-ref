@@ -2,6 +2,7 @@ package io.janstenpickle.hotswapref
 
 import cats.effect.kernel.{Concurrent, Poll, Ref, Resource, Unique}
 import cats.effect.std.{Hotswap, Semaphore}
+import cats.syntax.eq._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 
@@ -77,18 +78,19 @@ object HotswapRef {
           * since the first read. If the holder has been swapped, the lock is released and the new content is passed
           * to the next step of the loop. Otherwise, it's used to build the resulting `Resource`.
           */
-        val step: (R, Lock[F], Unique.Token) => F[Either[(R, Lock[F], Unique.Token), (R, F[Unit])]] =
-          (r, lock, token) =>
+        val step: ((R, Lock[F], Unique.Token)) => F[Either[(R, Lock[F], Unique.Token), (R, F[Unit])]] = {
+          case (r, lock, token) =>
             F.uncancelable { poll: Poll[F] =>
               poll(lock.shared.allocated).flatMap { case (_, lockRelease) =>
-                holder.get.flatMap { case (r1, lock1, token1) =>
-                  if (token != token1) lockRelease.as(Left((r1, lock1, token1)))
+                holder.get.flatMap { case tup1 @ (_, _, token1) =>
+                  if (token =!= token1) lockRelease.as(Left(tup1))
                   else F.pure(Right((r, lockRelease)))
                 }
               }
             }
+        }
 
-        val allocated = holder.get.flatMap(_.tailRecM(step.tupled))
+        val allocated = holder.get.flatMap(_.tailRecM(step))
 
         Resource.makeFull((poll: Poll[F]) => poll(allocated))(_._2).map(_._1)
       }

@@ -52,13 +52,13 @@ object HotswapRef {
     type Secured[A] = (A, Lock[F], Unique.Token)
     type Allocated[A] = (A, ExitCase => F[Unit])
 
-    /** Secure a resource by enriching it with a semaphore-based lock and a unique token and by modifying its finalizer.
-      *
-      * The lock is acquired in shared mode when the resource is accessed (permits concurrent access but prohibits
-      * finalization) and in exclusive mode when the resource is finalized (prohibits access).
-      *
-      * The token is used during access for consistent read of the holder reference.
-      */
+    /* Secure a resource by enriching it with a semaphore-based lock and a unique token and by modifying its finalizer.
+     *
+     * The lock is acquired in shared mode when the resource is accessed (permits concurrent access but prohibits
+     * finalization) and in exclusive mode when the resource is finalized (prohibits access).
+     *
+     * The token is used during access for consistent read of the holder reference.
+     */
     def secure(res: Resource[F, R]): Resource[F, Secured[R]] = {
       val allocated = Lock[F].flatMap { lock =>
         Unique[F].unique.flatMap { token =>
@@ -78,11 +78,11 @@ object HotswapRef {
 
         override val access: Resource[F, R] = {
 
-          /** Access to the resource is protected by a shared-mode lock. The holder reference is read at least twice:
-            * first, to retrieve its content, and then, after acquiring the lock, to check if the content hasn't changed
-            * since the first read. If the holder has been swapped, the lock is released and the new content is passed
-            * to the next step of the loop. Otherwise, it's used to build the resulting `Resource`.
-            */
+          /* Access to the resource is protected by a shared-mode lock. The holder reference is read at least twice:
+           * first, to retrieve its content, and then, after acquiring the lock, to check if the content hasn't changed
+           * since the first read. If the holder has been swapped, the lock is released and the new content is passed
+           * to the next step of the loop. Otherwise, it's used to build the resulting `Resource`.
+           */
           val step: Secured[R] => F[Either[Secured[R], Allocated[R]]] = { case (r, lock, token) =>
             F.uncancelable { poll =>
               poll(lock.shared.allocated).flatMap { case (_, lockRelease) =>

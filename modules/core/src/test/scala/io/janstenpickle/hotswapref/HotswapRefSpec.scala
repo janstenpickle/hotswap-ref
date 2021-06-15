@@ -42,9 +42,13 @@ class HotswapRefSpec extends AnyFlatSpec with Matchers with TestInstances {
     val test = (for {
       ref0 <- ref
       ref1 <- ref
+      gate0 <- Resource.eval(Deferred[IO, Unit])
+      gate1 <- Resource.eval(Deferred[IO, Unit])
       hotswap <- HotswapRef(Resource.pure[IO, R](ref0))
-      _ <- hotswap.swap(Resource.pure[IO, R](ref1).evalTap(_ => IO.never)).background //swap is hanging forever
-      _ <- Resource.eval(hotswap.access.use(_.update("test0" :: _)))
+      _ <- hotswap
+        .swap(Resource.eval(gate0.complete(())) >> Resource.pure[IO, R](ref1).evalTap(_ => gate1.get))
+        .background // in background: swap and hang on allocation
+      _ <- Resource.eval(gate0.get >> hotswap.access.use(_.update("test0" :: _)))
     } yield ref0.get).use(identity)
 
     val res = test.unsafeRunSync()

@@ -1,6 +1,7 @@
 package io.janstenpickle.hotswapref
 
-import cats.effect.kernel.{Concurrent, Poll, Ref, Resource, Unique}
+import cats.effect.kernel.Resource.ExitCase
+import cats.effect.kernel.{Concurrent, Ref, Resource, Unique}
 import cats.effect.std.{Hotswap, Semaphore}
 import cats.syntax.eq._
 import cats.syntax.flatMap._
@@ -48,6 +49,9 @@ object HotswapRef {
     */
   def apply[F[_], R](initial: Resource[F, R])(implicit F: Concurrent[F]): Resource[F, HotswapRef[F, R]] = {
 
+    type Secured[A] = (A, Lock[F], Unique.Token)
+    type Allocated[A] = (A, ExitCase => F[Unit])
+
     /** Secure a resource by enriching it with a semaphore-based lock and a unique token and by modifying its finalizer.
       *
       * The lock is acquired in shared mode when the resource is accessed (permits concurrent access but prohibits
@@ -55,44 +59,53 @@ object HotswapRef {
       *
       * The token is used during access for consistent read of the holder reference.
       */
-    def secure(res: Resource[F, R]): Resource[F, (R, Lock[F], Unique.Token)] = for {
-      lock <- Resource.eval(Lock[F])
-      r <- Resource
-        .makeFull((poll: Poll[F]) => poll(res.allocated)) { case (_, release) => lock.exclusive.surround(release) }
-        .map(_._1)
-      token <- Resource.eval(Unique[F].unique)
-    } yield (r, lock, token)
+    def secure(res: Resource[F, R]): Resource[F, Secured[R]] = {
+      val allocated = Lock[F].flatMap { lock =>
+        Unique[F].unique.flatMap { token =>
+          res.allocated.map { case (r, release) =>
+            ((r, lock, token), (_: ExitCase) => lock.exclusive.surround(release))
+          }
+        }
+      }
 
-    for {
-      (hotswap, securedR) <- Hotswap(secure(initial))
-      holder <- Resource.eval(Ref.of(securedR))
-      sem <- Resource.eval(Semaphore(1L))
-    } yield new HotswapRef[F, R] {
-      override def swap(next: Resource[F, R]): F[Unit] =
-        sem.permit.surround(hotswap.swap(secure(next).evalTap(holder.set))).void
+      Resource.applyFull(poll => poll(allocated))
+    }
 
-      override val access: Resource[F, R] = {
+    def impl(hotswap: Hotswap[F, Secured[R]], holder: Ref[F, Secured[R]], sem: Semaphore[F]): HotswapRef[F, R] =
+      new HotswapRef[F, R] {
+        override def swap(next: Resource[F, R]): F[Unit] =
+          sem.permit.surround(hotswap.swap(secure(next).evalTap(holder.set))).void
 
-        /** Access to the resource is protected by a shared-mode lock. The holder reference is read at least twice:
-          * first, to retrieve its content, and then, after acquiring the lock, to check if the content hasn't changed
-          * since the first read. If the holder has been swapped, the lock is released and the new content is passed
-          * to the next step of the loop. Otherwise, it's used to build the resulting `Resource`.
-          */
-        val step: ((R, Lock[F], Unique.Token)) => F[Either[(R, Lock[F], Unique.Token), (R, F[Unit])]] = {
-          case (r, lock, token) =>
-            F.uncancelable { poll: Poll[F] =>
+        override val access: Resource[F, R] = {
+
+          /** Access to the resource is protected by a shared-mode lock. The holder reference is read at least twice:
+            * first, to retrieve its content, and then, after acquiring the lock, to check if the content hasn't changed
+            * since the first read. If the holder has been swapped, the lock is released and the new content is passed
+            * to the next step of the loop. Otherwise, it's used to build the resulting `Resource`.
+            */
+          val step: Secured[R] => F[Either[Secured[R], Allocated[R]]] = { case (r, lock, token) =>
+            F.uncancelable { poll =>
               poll(lock.shared.allocated).flatMap { case (_, lockRelease) =>
                 holder.get.flatMap { case tup1 @ (_, _, token1) =>
                   if (token =!= token1) lockRelease.as(Left(tup1))
-                  else F.pure(Right((r, lockRelease)))
+                  else F.pure(Right((r, _ => lockRelease)))
                 }
               }
             }
+          }
+
+          val allocated = holder.get.flatMap(_.tailRecM(step))
+
+          Resource.applyFull(poll => poll(allocated))
         }
 
-        val allocated = holder.get.flatMap(_.tailRecM(step))
+      }
 
-        Resource.makeFull((poll: Poll[F]) => poll(allocated))(_._2).map(_._1)
+    Hotswap(secure(initial)).evalMap { case (hotswap, securedR) =>
+      Ref.of(securedR).flatMap { holder =>
+        Semaphore(1L).map { sem =>
+          impl(hotswap, holder, sem)
+        }
       }
     }
   }

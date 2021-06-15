@@ -11,7 +11,7 @@ trait Lock[F[_]] {
 
 object Lock {
   def apply[F[_]: Concurrent]: F[Lock[F]] = apply(Long.MaxValue)
-  def apply[F[_]: Concurrent](maxShared: Long): F[Lock[F]] = {
+  def apply[F[_]: Concurrent](maxShared: Long): F[Lock[F]] =
     Semaphore[F](maxShared).map { sem =>
       new Lock[F] {
         val shared: Resource[F, Unit] = sem.permit
@@ -19,5 +19,4 @@ object Lock {
           Resource.makeFull((poll: Poll[F]) => poll(sem.acquireN(maxShared)))(_ => sem.releaseN(maxShared))
       }
     }
-  }
 }

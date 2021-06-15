@@ -1,11 +1,11 @@
 package io.janstenpickle.hotswapref
 
-import cats.effect.kernel.{Clock, Ref, Resource, Temporal}
+import cats.effect.kernel.Resource.ExitCase
+import cats.effect.kernel.{Concurrent, Ref, Resource, Unique}
 import cats.effect.std.{Hotswap, Semaphore}
+import cats.syntax.eq._
+import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.monad._
-
-import scala.concurrent.duration._
 
 /** A concurrent data structure that wraps a [[cats.effect.std.Hotswap]] providing access to `R` using a
   * [[cats.effect.kernel.Ref]], that is set on resource acquisition, while providing asynchronous hotswap functionality
@@ -27,8 +27,8 @@ trait HotswapRef[F[_], R] {
     * [[cats.effect.kernel.Ref]] with `R` is updated immediately on allocation and may be used by [[access]] calls while
     * [[swap]] blocks, waiting for the previous [[cats.effect.kernel.Resource]] to finalize.
     *
-    * This means that while there is previous no finalization process in progress when this is called, `R` may be
-    * swapped in the ref, but will block until all references to `R` are removed and `R` is torn down.
+    * This means that while there is no previous finalization process in progress when this is called, `R` may be
+    * swapped in the holder ref, but will block until all references to `R` are removed and `R` is torn down.
     *
     * A semaphore guarantees that concurrent access to [[swap]] will wait while previous resources are finalized.
     */
@@ -36,9 +36,8 @@ trait HotswapRef[F[_], R] {
 
   /** Access `R` safely
     *
-    * Note that [[cats.effect.kernel.Resource]] `R` here is to maintain a count of the number of
-    * references that are currently open. A resource `R` with open references cannot be finalized and therefore
-    * cannot be fully swapped.
+    * Note that access to `R` is protected by a shared-mode lock via a [[cats.effect.kernel.Resource]] scope.
+    * A resource `R` with unreleased locks cannot be finalized and therefore cannot be fully swapped.
     */
   def access: Resource[F, R]
 }
@@ -48,31 +47,66 @@ object HotswapRef {
   /** Creates a new [[HotswapRef]] initialized with the specified resource. The [[HotswapRef]] instance is returned
     * within a [[cats.effect.kernel.Resource]]
     */
-  def apply[F[_]: Temporal, R](initial: Resource[F, R]): Resource[F, HotswapRef[F, R]] = {
+  def apply[F[_], R](initial: Resource[F, R])(implicit F: Concurrent[F]): Resource[F, HotswapRef[F, R]] = {
 
-    /* Provision a [[cats.effect.kernel.Ref]] to count the number of active requests for `R`, and do not release
-     * the resource until the number of open requests reaches 0. This effectively blocks the
-     * `swap` method until the previous resource is no longer in use anywhere.
-     */
-    def makeResource(r: Resource[F, R]): Resource[F, (Ref[F, Long], R)] =
-      for {
-        r0 <- r
-        ref <- Resource.make(Ref.of(0L))(references => Clock[F].sleep(100.millis).whileM_(references.get.map(_ != 0)))
-      } yield ref -> r0
+    type Secured[A] = (A, Lock[F], Unique.Token)
+    type Allocated[A] = (A, ExitCase => F[Unit])
 
-    for {
-      (hotswap, r) <- Hotswap(makeResource(initial))
-      sem <- Resource.eval(Semaphore(1))
-      ref <- Resource.eval(Ref.of(r))
-    } yield new HotswapRef[F, R] {
-      override def swap(next: Resource[F, R]): F[Unit] =
-        sem.permit.use(_ => hotswap.swap(makeResource(next).evalTap(ref.set))).void
+    /** Secure a resource by enriching it with a semaphore-based lock and a unique token and by modifying its finalizer.
+      *
+      * The lock is acquired in shared mode when the resource is accessed (permits concurrent access but prohibits
+      * finalization) and in exclusive mode when the resource is finalized (prohibits access).
+      *
+      * The token is used during access for consistent read of the holder reference.
+      */
+    def secure(res: Resource[F, R]): Resource[F, Secured[R]] = {
+      val allocated = Lock[F].flatMap { lock =>
+        Unique[F].unique.flatMap { token =>
+          res.allocated.map { case (r, release) =>
+            ((r, lock, token), (_: ExitCase) => lock.exclusive.surround(release))
+          }
+        }
+      }
 
-      override val access: Resource[F, R] =
-        for {
-          (references, r) <- Resource.eval(ref.get)
-          _ <- Resource.make(references.update(_ + 1))(_ => references.update(_ - 1))
-        } yield r
+      Resource.applyFull(poll => poll(allocated))
+    }
+
+    def impl(hotswap: Hotswap[F, Secured[R]], holder: Ref[F, Secured[R]], sem: Semaphore[F]): HotswapRef[F, R] =
+      new HotswapRef[F, R] {
+        override def swap(next: Resource[F, R]): F[Unit] =
+          sem.permit.surround(hotswap.swap(secure(next).evalTap(holder.set))).void
+
+        override val access: Resource[F, R] = {
+
+          /** Access to the resource is protected by a shared-mode lock. The holder reference is read at least twice:
+            * first, to retrieve its content, and then, after acquiring the lock, to check if the content hasn't changed
+            * since the first read. If the holder has been swapped, the lock is released and the new content is passed
+            * to the next step of the loop. Otherwise, it's used to build the resulting `Resource`.
+            */
+          val step: Secured[R] => F[Either[Secured[R], Allocated[R]]] = { case (r, lock, token) =>
+            F.uncancelable { poll =>
+              poll(lock.shared.allocated).flatMap { case (_, lockRelease) =>
+                holder.get.flatMap { case tup1 @ (_, _, token1) =>
+                  if (token =!= token1) lockRelease.as(Left(tup1))
+                  else F.pure(Right((r, _ => lockRelease)))
+                }
+              }
+            }
+          }
+
+          val allocated = holder.get.flatMap(_.tailRecM(step))
+
+          Resource.applyFull(poll => poll(allocated))
+        }
+
+      }
+
+    Hotswap(secure(initial)).evalMap { case (hotswap, securedR) =>
+      Ref.of(securedR).flatMap { holder =>
+        Semaphore(1L).map { sem =>
+          impl(hotswap, holder, sem)
+        }
+      }
     }
   }
 }

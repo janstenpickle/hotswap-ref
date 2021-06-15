@@ -16,7 +16,6 @@ lazy val commonSettings = Seq(
     ScmInfo(url("https://github.com/janstenpickle/hotswap-ref"), "scm:git:git@github.com:janstenpickle/hotswap-ref.git")
   ),
   Compile / compile / javacOptions ++= Seq("-source", "1.8", "-target", "1.8"),
-  addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
   scalacOptions := {
     val opts = scalacOptions.value :+ "-Wconf:src=src_managed/.*:s,any:wv"
 

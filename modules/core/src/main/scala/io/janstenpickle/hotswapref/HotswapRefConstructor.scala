@@ -1,6 +1,6 @@
 package io.janstenpickle.hotswapref
 
-import cats.effect.kernel.{Resource, Temporal}
+import cats.effect.kernel.{Concurrent, Resource}
 
 /** Use some `I` to construct `R` via a provided function, within a [[HotswapRef]].
   *
@@ -32,7 +32,7 @@ object HotswapRefConstructor {
     * @param make used to construct a [[cats.effect.kernel.Resource]] of `R` from `I`, called on construction and when
     *             `swapWith` is used.
     */
-  def apply[F[_]: Temporal, I, R](
+  def apply[F[_]: Concurrent, I, R](
     initial: I
   )(make: I => Resource[F, R]): Resource[F, HotswapRefConstructor[F, I, R]] = {
     HotswapRef[F, (I, R)](make(initial).map(initial -> _)).map { hotswap =>

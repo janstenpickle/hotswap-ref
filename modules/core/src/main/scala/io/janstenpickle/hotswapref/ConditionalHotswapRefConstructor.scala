@@ -1,7 +1,7 @@
 package io.janstenpickle.hotswapref
 
 import cats.Applicative
-import cats.effect.kernel.{MonadCancel, Resource, Temporal}
+import cats.effect.kernel.{Concurrent, MonadCancel, Resource}
 import cats.kernel.Eq
 import cats.syntax.applicative._
 import cats.syntax.eq._
@@ -38,7 +38,7 @@ object ConditionalHotswapRefConstructor {
     * @param make used to construct a [[cats.effect.kernel.Resource]] of `R` from `I`, called on construction and when
     *             `swapWith` or `maybeSwapWith` is used.
     */
-  def apply[F[_]: Temporal, I: Eq, R](
+  def apply[F[_]: Concurrent, I: Eq, R](
     initial: I
   )(make: I => Resource[F, R]): Resource[F, ConditionalHotswapRefConstructor[F, I, R]] =
     HotswapRefConstructor[F, I, R](initial)(make).map { hotswap =>

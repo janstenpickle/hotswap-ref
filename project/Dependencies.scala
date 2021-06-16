@@ -6,9 +6,12 @@ object Dependencies {
     val catsEffect = "3.1.1"
     val scala212 = "2.12.14"
     val scala213 = "2.13.6"
+    val scala3 = "3.0.0"
 
     val catsTestkitScalatest = "2.1.5"
     val scalaTest = "3.2.9"
+
+    val kindProjector = "0.13.0"
   }
 
   lazy val cats = "org.typelevel"          %% "cats-core"       % Versions.cats
@@ -20,4 +23,6 @@ object Dependencies {
 
   lazy val test =
     Seq(catsEffectTestkit, catsTestkitScalatest, scalaTest)
+
+  lazy val kindProjector = ("org.typelevel" %% "kind-projector" % Versions.kindProjector).cross(CrossVersion.full)
 }

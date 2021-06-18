@@ -30,6 +30,10 @@ lazy val publishSettings = commonSettings ++ Seq(
   Test / publishArtifact := false
 )
 
+lazy val mimaSettings = Seq(
+  mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet
+)
+
 lazy val documentationSettings = Seq(
   autoAPIMappings := true,
   apiMappings ++= {
@@ -53,6 +57,7 @@ lazy val root = (project in file("."))
 lazy val core =
   (project in file("modules/core"))
     .settings(publishSettings)
+    .settings(mimaSettings)
     .settings(documentationSettings)
     .settings(
       name := "hotswap-ref",
@@ -62,3 +67,4 @@ lazy val core =
 
 addCommandAlias("fmt", "all root/scalafmtSbt root/scalafmtAll")
 addCommandAlias("fmtCheck", "all root/scalafmtSbtCheck root/scalafmtCheckAll")
+addCommandAlias("mima", "core/mimaReportBinaryIssues")

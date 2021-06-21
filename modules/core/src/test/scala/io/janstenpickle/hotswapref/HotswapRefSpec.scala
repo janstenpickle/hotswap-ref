@@ -1,5 +1,6 @@
 package io.janstenpickle.hotswapref
 
+import cats.Applicative
 import cats.effect.IO
 import cats.effect.kernel.{Deferred, Ref, Resource}
 import cats.effect.testkit.TestInstances
@@ -162,4 +163,19 @@ class HotswapRefSpec extends AnyFlatSpec with Matchers with TestInstances {
 
     res.size should be(1000)
   }
+
+  it should "treat cancelation properly" in {
+    val test = (for {
+      hotswap <- HotswapRef(Resource.unit[IO])
+      _ <- replicateA_(hotswap.access.use_.start.flatMap(_.cancel).background)(100000)
+      _ <- Resource.eval(replicateA_(hotswap.swap(Resource.unit))(100))
+    } yield ()).use_
+
+    val res = test.unsafeRunTimed(60.seconds)
+
+    res.isDefined should be(true)
+  }
+
+  private def replicateA_[F[_]: Applicative, A](fa: F[A])(n: Int): F[Unit] =
+    (1 to n).map(_ => fa).foldLeft(Applicative[F].unit)(_ <* _)
 }

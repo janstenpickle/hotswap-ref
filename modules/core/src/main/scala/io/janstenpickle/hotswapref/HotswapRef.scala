@@ -76,29 +76,23 @@ object HotswapRef {
         override def swap(next: Resource[F, R]): F[Unit] =
           sem.permit.surround(hotswap.swap(secure(next).evalTap(holder.set))).void
 
-        override val access: Resource[F, R] = {
-
+        override val access: Resource[F, R] = Resource.applyFull { poll =>
           /* Access to the resource is protected by a shared-mode lock. The holder reference is read at least twice:
            * first, to retrieve its content, and then, after acquiring the lock, to check if the content hasn't changed
            * since the first read. If the holder has been swapped, the lock is released and the new content is passed
            * to the next step of the loop. Otherwise, it's used to build the resulting `Resource`.
            */
           val step: Secured[R] => F[Either[Secured[R], Allocated[R]]] = { case (r, lock, token) =>
-            F.uncancelable { poll =>
-              poll(lock.shared.allocated).flatMap { case (_, lockRelease) =>
-                holder.get.flatMap { case tup1 @ (_, _, token1) =>
-                  if (token =!= token1) lockRelease.as(Left(tup1))
-                  else F.pure(Right((r, _ => lockRelease)))
-                }
+            poll(lock.shared.allocated).flatMap { case (_, lockRelease) =>
+              holder.get.flatMap { case tup1 @ (_, _, token1) =>
+                if (token =!= token1) lockRelease.as(Left(tup1))
+                else F.pure(Right((r, _ => lockRelease)))
               }
             }
           }
 
-          val allocated = holder.get.flatMap(_.tailRecM(step))
-
-          Resource.applyFull(poll => poll(allocated))
+          holder.get.flatMap(_.tailRecM(step))
         }
-
       }
 
     Hotswap(secure(initial)).evalMap { case (hotswap, securedR) =>

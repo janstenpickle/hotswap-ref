@@ -15,7 +15,7 @@ resource, allowing them to be performed within different fibers.
 Add the following dependencies to your `build.sbt`:
 
 ```scala
-"io.janstenpickle" %% "hotswap-ref" % "0.2.0"
+"io.janstenpickle" %% "hotswap-ref" % "0.3.0"
 ```
 
 ## Usage

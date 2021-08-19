@@ -28,9 +28,11 @@ object HotswapRefConstructor {
   /** Creates a new [[HotswapRefConstructor]] initialized using `initial` and `make`. The [[HotswapRefConstructor]]
     * instance is returned within a [[cats.effect.kernel.Resource]].
     *
-    * @param initial the initial value of input `I` to be used to construct `R`
-    * @param make used to construct a [[cats.effect.kernel.Resource]] of `R` from `I`, called on construction and when
-    *             `swapWith` is used.
+    * @param initial
+    *   the initial value of input `I` to be used to construct `R`
+    * @param make
+    *   used to construct a [[cats.effect.kernel.Resource]] of `R` from `I`, called on construction and when `swapWith`
+    *   is used.
     */
   def apply[F[_]: Concurrent, I, R](
     initial: I

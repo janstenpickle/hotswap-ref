@@ -13,8 +13,8 @@ import cats.syntax.functor._
   *
   * In short, calls to [[swap]] do not block the usage of `R` via calls to [[access]].
   *
-  * Repeated concurrent calls to [[swap]] are ordered by a semaphore to ensure that `R` doesn't churn unexpectedly.
-  * As with calls to [[swap]] on [[cats.effect.std.Hotswap]], [[swap]] will block until the previous
+  * Repeated concurrent calls to [[swap]] are ordered by a semaphore to ensure that `R` doesn't churn unexpectedly. As
+  * with calls to [[swap]] on [[cats.effect.std.Hotswap]], [[swap]] will block until the previous
   * [[cats.effect.kernel.Resource]] is finalized. Additionally open references to `R` are counted when it is accessed
   * via [[access]], any `R` with open references will block at finalization until all references are released, and
   * therefore subsequent calls to [[swap]] will block.
@@ -36,8 +36,8 @@ trait HotswapRef[F[_], R] {
 
   /** Access `R` safely
     *
-    * Note that access to `R` is protected by a shared-mode lock via a [[cats.effect.kernel.Resource]] scope.
-    * A resource `R` with unreleased locks cannot be finalized and therefore cannot be fully swapped.
+    * Note that access to `R` is protected by a shared-mode lock via a [[cats.effect.kernel.Resource]] scope. A resource
+    * `R` with unreleased locks cannot be finalized and therefore cannot be fully swapped.
     */
   def access: Resource[F, R]
 }

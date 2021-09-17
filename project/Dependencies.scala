@@ -9,7 +9,7 @@ object Dependencies {
     val scala3 = "3.0.2"
 
     val catsTestkitScalatest = "2.1.5"
-    val scalaTest = "3.2.9"
+    val scalaTest = "3.2.10"
 
     val kindProjector = "0.13.2"
   }

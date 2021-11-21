@@ -67,7 +67,7 @@ class HotswapRefSpec extends AnyFlatSpec with Matchers with TestInstances {
       gate0 <- Resource.eval(Deferred[IO, Unit])
       gate1 <- Resource.eval(Deferred[IO, Unit])
       hotswap <- HotswapRef(Resource.pure[IO, R](ref0) <* Resource.unit.onFinalize(gate0.complete(()) >> gate1.get))
-      _ <- hotswap.swap(Resource.pure[IO, R](ref1)).background //swap will hang on the release of ref0
+      _ <- hotswap.swap(Resource.pure[IO, R](ref1)).background // swap will hang on the release of ref0
       _ <- Resource.eval(gate0.get) // wait for the release of ref0 to begin
       _ <- Resource.eval(hotswap.access.use(_.update("test1" :: _))) // access to ref1 is not blocked
       _ <- Resource.eval(gate1.complete(())) // let the release of ref0 complete

@@ -16,6 +16,7 @@ on:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  JABBA_INDEX: 'https://github.com/typelevel/jdk-index/raw/main/index.json'
 
 jobs:
   build:
@@ -23,8 +24,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        scala: [2.13.7, 2.12.15, 3.0.2]
-        java: [adopt@1.8, adopt@1.11]
+        scala: [2.13.7, 2.12.15, 3.1.0]
+        java: [adoptium@8, adoptium@17]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout current branch (full)
@@ -75,7 +76,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         scala: [2.13.7]
-        java: [adopt@1.8]
+        java: [adoptium@8]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout current branch (full)
@@ -120,12 +121,12 @@ jobs:
           tar xf targets.tar
           rm targets.tar
 
-      - name: Download target directories (3.0.2)
+      - name: Download target directories (3.1.0)
         uses: actions/download-artifact@v2
         with:
-          name: target-${{ matrix.os }}-3.0.2-${{ matrix.java }}
+          name: target-${{ matrix.os }}-3.1.0-${{ matrix.java }}
 
-      - name: Inflate target directories (3.0.2)
+      - name: Inflate target directories (3.1.0)
         run: |
           tar xf targets.tar
           rm targets.tar

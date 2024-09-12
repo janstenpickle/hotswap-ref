@@ -11,7 +11,7 @@ object Dependencies {
     val catsTestkitScalatest = "2.1.5"
     val scalaTest = "3.2.19"
 
-    val kindProjector = "0.13.2"
+    val kindProjector = "0.13.3"
   }
 
   lazy val cats = "org.typelevel"          %% "cats-core"       % Versions.cats
